@@ -80,9 +80,9 @@ const frontendCode = `
         .video-wrapper:hover { border: 2px solid var(--neon-blue); box-shadow: 0 0 15px rgba(69,243,255,0.5); }
         .video-wrapper video { width: 100%; height: 100%; object-fit: cover; }
         .video-wrapper .name-tag { position: absolute; bottom: 5px; left: 5px; background: rgba(0,0,0,0.7); padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.2);}
-        
-        /* FADED UI (Disabled until someone joins) */
-        .faded-ui { opacity: 0.3; pointer-events: none; filter: grayscale(100%); transition: 0.5s;}
+
+        /* Buttons Fade Out Class */
+        .disabled-btn { opacity: 0.3 !important; pointer-events: none !important; filter: grayscale(100%) !important; transition: 0.5s; }
 
         /* Controls */
         .controls { height: 70px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 15px; border-top: 1px solid rgba(255,255,255,0.1); z-index: 10; transition: 0.5s;}
@@ -90,8 +90,6 @@ const frontendCode = `
         .ctrl-btn:hover { background: #555; transform: translateY(-2px); }
         .ctrl-btn.active { background: rgba(69, 243, 255, 0.2); border: 1px solid var(--neon-blue); box-shadow: 0 0 10px rgba(69,243,255,0.3); }
         .ctrl-btn.danger { background: var(--neon-red); border-color: var(--neon-red); }
-        /* Exception: Leave button is always active */
-        .ctrl-btn.danger.always-active { opacity: 1 !important; pointer-events: auto !important; filter: grayscale(0) !important; }
         .ctrl-btn.danger:hover { background: #ff003c; box-shadow: 0 0 15px var(--neon-red); transform: rotate(135deg) scale(1.1); }
         
         /* Side Panels */
@@ -159,7 +157,8 @@ const frontendCode = `
                     <span id="room-id-display" class="neon-text-small"></span>
                     <button id="invite-btn" class="neon-btn small outline">Invite Friends 💌</button>
                     <span id="admin-badge" class="neon-text-small hidden" style="color:var(--neon-purple); border:1px solid var(--neon-purple); padding:2px 5px; border-radius:4px; font-size:0.8rem;">Room Admin</span>
-                    <span id="meeting-timer" class="neon-text-small" style="margin-left: auto; color: var(--neon-green); font-weight: bold; font-size: 1.2rem; text-shadow: 0 0 10px var(--neon-green);">00:00</span>
+                    <!-- Timer starts hidden -->
+                    <span id="meeting-timer" class="neon-text-small hidden" style="margin-left: auto; color: var(--neon-green); font-weight: bold; font-size: 1.2rem; text-shadow: 0 0 10px var(--neon-green);">00:00</span>
                 </div>
                 
                 <div id="waiting-screen" class="waiting-active">
@@ -169,18 +168,22 @@ const frontendCode = `
                 </div>
                 <div id="video-grid"></div>
                 
-                <div class="controls faded-ui" id="main-controls">
+                <div class="controls" id="main-controls">
+                    <!-- Mic and Cam are always visible, not faded -->
                     <button id="mic-btn" class="ctrl-btn active" title="Mute/Unmute">🎤</button>
                     <button id="cam-btn" class="ctrl-btn active" title="Camera On/Off">📷</button>
-                    <button id="screen-btn" class="ctrl-btn hide-mobile" title="Share Screen">💻</button>
-                    <button id="hand-btn" class="ctrl-btn" title="Raise Hand">✋</button>
-                    <button id="chat-toggle-btn" class="ctrl-btn" title="Toggle Chat">💬</button>
-                    <button id="notes-toggle-btn" class="ctrl-btn hide-mobile" title="Take Notes">📝</button>
+                    
+                    <!-- Faded initially -->
+                    <button id="screen-btn" class="ctrl-btn disabled-btn hide-mobile" title="Share Screen">💻</button>
+                    <button id="hand-btn" class="ctrl-btn disabled-btn" title="Raise Hand">✋</button>
+                    <button id="chat-toggle-btn" class="ctrl-btn disabled-btn" title="Toggle Chat">💬</button>
+                    <button id="notes-toggle-btn" class="ctrl-btn disabled-btn hide-mobile" title="Take Notes">📝</button>
+                    
                     <button id="leave-btn" class="ctrl-btn danger always-active" title="Leave Meeting" style="transform: rotate(135deg);">📞</button>
                 </div>
             </div>
             
-            <div id="side-panels" class="faded-ui" id="main-panels">
+            <div id="side-panels" id="main-panels">
                 <div id="chat-section" class="panel hidden">
                     <div class="panel-header">
                         <h3 class="neon-text-small">Live Chat</h3>
@@ -215,6 +218,15 @@ const frontendCode = `
         const peers = {};
         let isJoining = false;
         let globalRoomId = '';
+
+        // Media states
+        let hasRealAudio = false;
+        let hasRealVideo = false;
+        let isAudio = false;
+        let isVideo = false;
+
+        let timerStarted = false;
+        let meetingStartTime;
 
         const step1 = document.getElementById('step-1-circles');
         const step2 = document.getElementById('step-2-form');
@@ -259,20 +271,41 @@ const frontendCode = `
             setTimeout(() => notif.remove(), 3500);
         }
 
+        function startTimer() {
+            meetingStartTime = Date.now();
+            setInterval(() => {
+                const diff = Date.now() - meetingStartTime;
+                const m = Math.floor(diff / 60000).toString().padStart(2, '0');
+                const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+                const timerEl = document.getElementById('meeting-timer');
+                if(timerEl) timerEl.innerText = m + ':' + s;
+            }, 1000);
+        }
+
         // ==========================================
-        // UI LOCK LOGIC (FADE)
+        // UI BUTTON FADE & TIMER LOGIC
         // ==========================================
         function updateUIState() {
-            const controls = document.getElementById('main-controls');
-            const panels = document.getElementById('main-panels');
+            const featureBtns = [
+                document.getElementById('screen-btn'),
+                document.getElementById('hand-btn'),
+                document.getElementById('chat-toggle-btn'),
+                document.getElementById('notes-toggle-btn')
+            ];
+            const timerEl = document.getElementById('meeting-timer');
+
             if (Object.keys(peers).length === 0) {
-                // No one else here -> Fade out UI
-                controls.classList.add('faded-ui');
-                panels.classList.add('faded-ui');
+                // You are alone: disable tools, hide timer
+                featureBtns.forEach(btn => btn.classList.add('disabled-btn'));
+                timerEl.classList.add('hidden');
             } else {
-                // Someone joined -> Activate UI
-                controls.classList.remove('faded-ui');
-                panels.classList.remove('faded-ui');
+                // Someone joined: enable tools, show timer
+                featureBtns.forEach(btn => btn.classList.remove('disabled-btn'));
+                timerEl.classList.remove('hidden');
+                if (!timerStarted) {
+                    startTimer();
+                    timerStarted = true;
+                }
             }
         }
 
@@ -282,7 +315,6 @@ const frontendCode = `
             globalRoomId = isJoining ? roomInput.value.trim() : Math.random().toString(36).substr(2, 9);
             if (isJoining && !globalRoomId) return alert('Please enter a Room ID');
             
-            // Step 1: Check if room exists BEFORE changing UI
             if (isJoining) {
                 socket.emit('check-room-exists', globalRoomId);
             } else {
@@ -290,7 +322,6 @@ const frontendCode = `
             }
         });
 
-        // Room Validation Response
         socket.on('room-exists-response', (exists) => {
             if (exists) {
                 proceedToMeeting();
@@ -315,7 +346,6 @@ const frontendCode = `
             socket.emit('request-join', globalRoomId, myPeerId, myName);
         }
 
-        // As a Guest: Server says we are approved or we are the admin
         socket.on('join-approved', async (isAdmin) => {
             if (isAdmin) {
                 document.getElementById('admin-badge').classList.remove('hidden');
@@ -326,13 +356,11 @@ const frontendCode = `
             startCameraAndWebRTC();
         });
 
-        // As a Guest: We are placed in waiting room
         socket.on('waiting-for-admin', () => {
             waitingText.innerText = "Asking Admin...";
             waitingSubtext.innerText = "Please wait for permission to enter.";
         });
 
-        // As a Guest: Admin denied
         socket.on('join-denied', () => {
             waitingText.innerText = "Access Denied";
             waitingSubtext.innerText = "The Room Admin declined your entry.";
@@ -341,7 +369,6 @@ const frontendCode = `
             setTimeout(() => window.location.href = '/', 3000);
         });
 
-        // As an Admin: Ask permission
         socket.on('ask-admin-permission', (guestSocketId, guestPeerId, guestName) => {
             const container = document.getElementById('admin-requests-container');
             const reqDiv = document.createElement('div');
@@ -364,18 +391,21 @@ const frontendCode = `
         });
 
         // ----------------------------------------------------
-        // 150+ USERS WEBRTC OPTIMIZATIONS
+        // WEBRTC & DUMMY STREAM (NO PERMISSION NEEDED TO ENTER)
         // ----------------------------------------------------
-        let meetingStartTime;
-        function startTimer() {
-            meetingStartTime = Date.now();
-            setInterval(() => {
-                const diff = Date.now() - meetingStartTime;
-                const m = Math.floor(diff / 60000).toString().padStart(2, '0');
-                const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
-                const timerEl = document.getElementById('meeting-timer');
-                if(timerEl) timerEl.innerText = m + ':' + s;
-            }, 1000);
+        function createDummyStream() {
+            // Creates a black video and silent audio so WebRTC doesn't break
+            const canvas = document.createElement('canvas');
+            canvas.width = 320; canvas.height = 240;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#111'; ctx.fillRect(0, 0, 320, 240);
+            ctx.fillStyle = '#45f3ff'; ctx.font = '20px Arial';
+            ctx.fillText('Camera Off', 100, 120);
+            const videoStream = canvas.captureStream(15);
+            
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const dest = audioCtx.createMediaStreamDestination();
+            return new MediaStream([videoStream.getVideoTracks()[0], dest.stream.getAudioTracks()[0]]);
         }
 
         const videoObserver = new IntersectionObserver((entries) => {
@@ -387,30 +417,38 @@ const frontendCode = `
         }, { threshold: 0.1 });
 
         async function startCameraAndWebRTC() {
-            startTimer();
             try {
-                // MASSIVE SCALABILITY TWEAK: Extremely compressed local video to save bandwidth
                 myVideoStream = await navigator.mediaDevices.getUserMedia({ 
                     video: { width: { ideal: 160 }, height: { ideal: 120 }, frameRate: { ideal: 10 } }, 
                     audio: true 
                 });
-                const myVideo = document.createElement('video');
-                myVideo.muted = true;
-                addVideoStream(myVideo, myVideoStream, myPeerId, myName + ' (You)');
-                
-                socket.emit('join-room-final', globalRoomId, myPeerId, myName);
-                checkEmptyRoom();
+                hasRealVideo = true; hasRealAudio = true;
+                isAudio = true; isVideo = true;
             } catch (err) {
-                alert("Camera/Mic access is needed to join!");
-                window.location.href = '/';
+                console.warn("User denied camera/mic or no device found. Proceeding with dummy stream.");
+                myVideoStream = createDummyStream();
+                hasRealVideo = false; hasRealAudio = false;
+                isAudio = false; isVideo = false;
+                
+                // Update buttons visually
+                document.getElementById('mic-btn').classList.remove('active');
+                document.getElementById('mic-btn').innerText = '🔇';
+                document.getElementById('cam-btn').classList.remove('active');
             }
+
+            const myVideo = document.createElement('video');
+            myVideo.muted = true;
+            addVideoStream(myVideo, myVideoStream, myPeerId, myName + ' (You)');
+            
+            socket.emit('join-room-final', globalRoomId, myPeerId, myName);
+            checkEmptyRoom();
         }
 
         function checkEmptyRoom() {
-            updateUIState(); // Call UI Fader
+            updateUIState();
             if (Object.keys(peers).length === 0) {
                 waitingText.innerText = "You are the only one here.";
-                waitingSubtext.innerText = "UI Controls are disabled until someone joins.";
+                waitingSubtext.innerText = "Features are disabled until someone joins.";
                 document.querySelector('.loader').style.display = "block";
                 waitingScreen.classList.add('waiting-active');
             } else {
@@ -488,15 +526,57 @@ const frontendCode = `
             videoGrid.append(wrapper);
         }
 
-        let isAudio = true, isVideo = true;
-        document.getElementById('mic-btn').addEventListener('click', (e) => {
-            isAudio = !isAudio; myVideoStream.getAudioTracks()[0].enabled = isAudio;
-            e.target.classList.toggle('active', isAudio); e.target.innerText = isAudio ? '🎤' : '🔇';
+        // ==========================================
+        // DYNAMIC CAMERA & MIC PERMISSIONS
+        // ==========================================
+        document.getElementById('mic-btn').addEventListener('click', async (e) => {
+            if (!hasRealAudio) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const newTrack = stream.getAudioTracks()[0];
+                    myVideoStream.removeTrack(myVideoStream.getAudioTracks()[0]);
+                    myVideoStream.addTrack(newTrack);
+                    hasRealAudio = true;
+                    // Send to peers
+                    for (let peerId in peers) {
+                        const sender = peers[peerId].pc.getSenders().find(s => s.track.kind === 'audio');
+                        if (sender) sender.replaceTrack(newTrack);
+                    }
+                } catch (err) {
+                    return alert("Microphone permission denied! Please allow access in browser settings.");
+                }
+            }
+            isAudio = !isAudio; 
+            myVideoStream.getAudioTracks()[0].enabled = isAudio;
+            e.target.classList.toggle('active', isAudio); 
+            e.target.innerText = isAudio ? '🎤' : '🔇';
         });
-        document.getElementById('cam-btn').addEventListener('click', (e) => {
-            isVideo = !isVideo; myVideoStream.getVideoTracks()[0].enabled = isVideo;
+
+        document.getElementById('cam-btn').addEventListener('click', async (e) => {
+            if (!hasRealVideo) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 160 }, height: { ideal: 120 } } });
+                    const newTrack = stream.getVideoTracks()[0];
+                    myVideoStream.removeTrack(myVideoStream.getVideoTracks()[0]);
+                    myVideoStream.addTrack(newTrack);
+                    hasRealVideo = true;
+                    // Update local video element
+                    const myVidElement = document.querySelector('#wrapper-' + myPeerId + ' video');
+                    if (myVidElement) myVidElement.srcObject = myVideoStream;
+                    // Send to peers
+                    for (let peerId in peers) {
+                        const sender = peers[peerId].pc.getSenders().find(s => s.track.kind === 'video');
+                        if (sender) sender.replaceTrack(newTrack);
+                    }
+                } catch (err) {
+                    return alert("Camera permission denied! Please allow access in browser settings.");
+                }
+            }
+            isVideo = !isVideo; 
+            myVideoStream.getVideoTracks()[0].enabled = isVideo;
             e.target.classList.toggle('active', isVideo);
         });
+
         document.getElementById('leave-btn').addEventListener('click', () => window.location.href = '/');
 
         document.getElementById('screen-btn').addEventListener('click', async (e) => {
@@ -593,7 +673,7 @@ io.on('connection', (socket) => {
     socket.on('request-join', (roomId, peerId, userName) => {
         if (!roomAdmins[roomId]) {
             roomAdmins[roomId] = socket.id;
-            activeRooms.add(roomId); // Register room as active
+            activeRooms.add(roomId); 
             socket.emit('join-approved', true);
         } else {
             socket.emit('waiting-for-admin');
@@ -630,16 +710,12 @@ io.on('connection', (socket) => {
         socket.on('disconnect', () => {
             socket.to(roomId).emit('user-disconnected', userId);
             
-            // Clean up admin mapping if admin leaves
             if (roomAdmins[roomId] === socket.id) {
                 delete roomAdmins[roomId];
-                
-                // If room becomes empty, remove it from active rooms
                 const clients = io.sockets.adapter.rooms.get(roomId);
                 if (!clients || clients.size === 0) {
                     activeRooms.delete(roomId);
                 } else {
-                    // Assign next person as admin
                     const nextAdmin = Array.from(clients)[0];
                     roomAdmins[roomId] = nextAdmin;
                 }
