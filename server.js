@@ -7,7 +7,7 @@ const io = require('socket.io')(http);
 // BACKEND LOGIC: ADMIN & LOBBY TRACKING
 // ==========================================
 const roomAdmins = {}; 
-const activeRooms = new Set(); // Track valid rooms
+const activeRooms = new Set(); 
 
 // ==========================================
 // FULL FRONTEND (HTML + CSS + JS) IN ONE VARIABLE
@@ -68,10 +68,14 @@ const frontendCode = `
         /* Meeting Layout */
         .main-layout { display: flex; width: 100%; height: 100%; padding: 15px; gap: 15px; }
         .video-section { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); border-radius: 15px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);}
-        .room-header { position: absolute; top: 10px; left: 10px; z-index: 10; display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.8); padding: 10px 20px; border-radius: 10px; border: 1px solid #333;}
         
-        #waiting-screen { position: absolute; top:0; left:0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; background: rgba(0, 0, 0, 0.9); z-index: 50; text-align: center;}
+        /* Important: High z-index so Invite Header never fades */
+        .room-header { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 100; display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.8); padding: 10px 20px; border-radius: 10px; border: 1px solid #333;}
+        
+        /* Sleek Glassmorphism Waiting Screen (Replaces ugly black screen) */
+        #waiting-screen { position: absolute; top:0; left:0; width: 100%; height: 100%; display: none; justify-content: center; align-items: center; background: rgba(0, 0, 0, 0.3); backdrop-filter: blur(8px); z-index: 50;}
         #waiting-screen.waiting-active { display: flex; }
+        .waiting-box { background: rgba(31, 40, 51, 0.85); border: 1px solid var(--neon-blue); padding: 40px; border-radius: 15px; box-shadow: 0 0 30px rgba(69,243,255,0.2); display: flex; flex-direction: column; align-items: center; text-align: center; }
         .loader { width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid var(--neon-blue); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
@@ -81,24 +85,24 @@ const frontendCode = `
         .video-wrapper video { width: 100%; height: 100%; object-fit: cover; }
         .video-wrapper .name-tag { position: absolute; bottom: 5px; left: 5px; background: rgba(0,0,0,0.7); padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.2);}
 
-        /* Buttons Fade Out Class */
+        /* Fade class for specific buttons only */
         .disabled-btn { opacity: 0.3 !important; pointer-events: none !important; filter: grayscale(100%) !important; transition: 0.5s; }
 
         /* Controls */
-        .controls { height: 70px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 15px; border-top: 1px solid rgba(255,255,255,0.1); z-index: 10; transition: 0.5s;}
-        .ctrl-btn { background: #333; border: 1px solid #444; color: white; width: 45px; height: 45px; border-radius: 50%; font-size: 1.2rem; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center;}
+        .controls { height: 70px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 15px; border-top: 1px solid rgba(255,255,255,0.1); z-index: 10;}
+        .ctrl-btn { background: #333; border: 1px solid #444; color: white; width: 45px; height: 45px; border-radius: 50%; font-size: 1.2rem; cursor: pointer; transition: 0.3s; display: flex; justify-content: center; align-items: center; position: relative;}
         .ctrl-btn:hover { background: #555; transform: translateY(-2px); }
         .ctrl-btn.active { background: rgba(69, 243, 255, 0.2); border: 1px solid var(--neon-blue); box-shadow: 0 0 10px rgba(69,243,255,0.3); }
         .ctrl-btn.danger { background: var(--neon-red); border-color: var(--neon-red); }
         .ctrl-btn.danger:hover { background: #ff003c; box-shadow: 0 0 15px var(--neon-red); transform: rotate(135deg) scale(1.1); }
         
         /* Side Panels */
-        #side-panels { display: flex; gap: 15px; transition: 0.5s;}
+        #side-panels { display: flex; gap: 15px; }
         .panel { width: 300px; background: var(--surface); backdrop-filter: blur(10px); border-radius: 15px; display: flex; flex-direction: column; padding: 15px; border: 1px solid rgba(255,255,255,0.1); transition: 0.3s; box-shadow: 0 10px 30px rgba(0,0,0,0.5);}
         .panel-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 10px;}
         #chat-window { flex: 1; overflow-y: auto; margin-bottom: 15px; padding-right: 5px; }
         #messages { list-style-type: none; display: flex; flex-direction: column; gap: 8px;}
-        #messages li { padding: 8px 10px; background: rgba(255,255,255,0.1); border-radius: 8px; font-size: 0.9rem; border-left: 3px solid var(--neon-purple);}
+        #messages li { padding: 8px 10px; background: rgba(255,255,255,0.1); border-radius: 8px; font-size: 0.9rem; border-left: 3px solid var(--neon-purple); word-break: break-word;}
         #messages li.my-message { background: rgba(69, 243, 255, 0.15); text-align: right; border-left: none; border-right: 3px solid var(--neon-blue);}
         #messages li b { font-size: 0.75rem; display: block; color: #ccc; margin-bottom: 2px;}
         #personal-notes { flex: 1; resize: none; background: rgba(0,0,0,0.5); color: white; }
@@ -153,6 +157,7 @@ const frontendCode = `
     <div id="meeting-room" class="container hidden">
         <div class="main-layout">
             <div class="video-section">
+                <!-- Header ALWAYS visible (z-index 100) -->
                 <div class="room-header">
                     <span id="room-id-display" class="neon-text-small"></span>
                     <button id="invite-btn" class="neon-btn small outline">Invite Friends 💌</button>
@@ -161,25 +166,34 @@ const frontendCode = `
                     <span id="meeting-timer" class="neon-text-small hidden" style="margin-left: auto; color: var(--neon-green); font-weight: bold; font-size: 1.2rem; text-shadow: 0 0 10px var(--neon-green);">00:00</span>
                 </div>
                 
+                <!-- NEW Sleek Glassmorphism Waiting Screen -->
                 <div id="waiting-screen" class="waiting-active">
-                    <div class="loader"></div>
-                    <h2 id="waiting-text">Connecting...</h2>
-                    <p id="waiting-subtext">Please wait.</p>
+                    <div class="waiting-box">
+                        <div class="loader"></div>
+                        <h2 id="waiting-text" style="margin-bottom: 5px;">Connecting...</h2>
+                        <p id="waiting-subtext" style="color: #ccc;">Please wait.</p>
+                    </div>
                 </div>
                 <div id="video-grid"></div>
                 
                 <div class="controls" id="main-controls">
-                    <!-- Mic and Cam are always visible, not faded -->
+                    <!-- Mic and Cam are ALWAYS enabled -->
                     <button id="mic-btn" class="ctrl-btn active" title="Mute/Unmute">🎤</button>
                     <button id="cam-btn" class="ctrl-btn active" title="Camera On/Off">📷</button>
                     
-                    <!-- Faded initially -->
+                    <!-- Feature buttons are disabled/faded initially -->
                     <button id="screen-btn" class="ctrl-btn disabled-btn hide-mobile" title="Share Screen">💻</button>
                     <button id="hand-btn" class="ctrl-btn disabled-btn" title="Raise Hand">✋</button>
-                    <button id="chat-toggle-btn" class="ctrl-btn disabled-btn" title="Toggle Chat">💬</button>
+                    
+                    <!-- Chat Toggle with WhatsApp Style Notification Badge -->
+                    <button id="chat-toggle-btn" class="ctrl-btn disabled-btn" title="Toggle Chat">
+                        💬
+                        <span id="chat-badge" style="position:absolute; top:-5px; right:-5px; background:var(--neon-red); color:white; border-radius:50%; font-size:0.75rem; padding:2px 6px; display:none; font-weight:bold; box-shadow: 0 0 10px var(--neon-red);">0</span>
+                    </button>
+                    
                     <button id="notes-toggle-btn" class="ctrl-btn disabled-btn hide-mobile" title="Take Notes">📝</button>
                     
-                    <button id="leave-btn" class="ctrl-btn danger always-active" title="Leave Meeting" style="transform: rotate(135deg);">📞</button>
+                    <button id="leave-btn" class="ctrl-btn danger" title="Leave Meeting" style="transform: rotate(135deg);">📞</button>
                 </div>
             </div>
             
@@ -213,7 +227,10 @@ const frontendCode = `
         const socket = io();
         const videoGrid = document.getElementById('video-grid');
         let myVideoStream;
+        
+        // CRITICAL BUG FIX: We now use a unique socket ID mapping to avoid signaling mismatch!
         let myPeerId = Math.random().toString(36).substr(2, 9);
+        
         let myName = '';
         const peers = {};
         let isJoining = false;
@@ -227,6 +244,7 @@ const frontendCode = `
 
         let timerStarted = false;
         let meetingStartTime;
+        let unreadChatCount = 0; // For WhatsApp style badge
 
         const step1 = document.getElementById('step-1-circles');
         const step2 = document.getElementById('step-2-form');
@@ -283,7 +301,7 @@ const frontendCode = `
         }
 
         // ==========================================
-        // UI BUTTON FADE & TIMER LOGIC
+        // UI BUTTON FADE (ONLY TOOLS, NOT FULL SCREEN)
         // ==========================================
         function updateUIState() {
             const featureBtns = [
@@ -391,10 +409,9 @@ const frontendCode = `
         });
 
         // ----------------------------------------------------
-        // WEBRTC & DUMMY STREAM (NO PERMISSION NEEDED TO ENTER)
+        // WEBRTC & DUMMY STREAM LOGIC
         // ----------------------------------------------------
         function createDummyStream() {
-            // Creates a black video and silent audio so WebRTC doesn't break
             const canvas = document.createElement('canvas');
             canvas.width = 320; canvas.height = 240;
             const ctx = canvas.getContext('2d');
@@ -425,12 +442,11 @@ const frontendCode = `
                 hasRealVideo = true; hasRealAudio = true;
                 isAudio = true; isVideo = true;
             } catch (err) {
-                console.warn("User denied camera/mic or no device found. Proceeding with dummy stream.");
+                console.warn("User denied camera/mic. Proceeding with dummy stream.");
                 myVideoStream = createDummyStream();
                 hasRealVideo = false; hasRealAudio = false;
                 isAudio = false; isVideo = false;
                 
-                // Update buttons visually
                 document.getElementById('mic-btn').classList.remove('active');
                 document.getElementById('mic-btn').innerText = '🔇';
                 document.getElementById('cam-btn').classList.remove('active');
@@ -440,6 +456,7 @@ const frontendCode = `
             myVideo.muted = true;
             addVideoStream(myVideo, myVideoStream, myPeerId, myName + ' (You)');
             
+            // Critical Fix: Join using our unique myPeerId
             socket.emit('join-room-final', globalRoomId, myPeerId, myName);
             checkEmptyRoom();
         }
@@ -448,7 +465,7 @@ const frontendCode = `
             updateUIState();
             if (Object.keys(peers).length === 0) {
                 waitingText.innerText = "You are the only one here.";
-                waitingSubtext.innerText = "Features are disabled until someone joins.";
+                waitingSubtext.innerText = "Tools will activate when someone joins.";
                 document.querySelector('.loader').style.display = "block";
                 waitingScreen.classList.add('waiting-active');
             } else {
@@ -456,6 +473,7 @@ const frontendCode = `
             }
         }
 
+        // --- NEW ROCK SOLID SIGNALING ---
         socket.on('user-connected', async (userId, userName) => {
             showNotification(userName + ' joined!');
             const peerConnection = createPeerConnection(userId, userName);
@@ -463,7 +481,9 @@ const frontendCode = `
             myVideoStream.getTracks().forEach(track => peerConnection.addTrack(track, myVideoStream));
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
-            socket.emit('offer', offer, userId);
+            
+            // Sending offer directly to their unique peer room
+            socket.emit('offer', offer, userId, myPeerId); 
             checkEmptyRoom();
         });
 
@@ -474,7 +494,8 @@ const frontendCode = `
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
-            socket.emit('answer', answer, fromId);
+            
+            socket.emit('answer', answer, fromId, myPeerId); 
             checkEmptyRoom();
         });
 
@@ -495,7 +516,9 @@ const frontendCode = `
 
         function createPeerConnection(userId, userName) {
             const pc = new RTCPeerConnection(iceServerConfig);
-            pc.onicecandidate = (e) => { if (e.candidate) socket.emit('ice-candidate', e.candidate, userId); };
+            pc.onicecandidate = (e) => { 
+                if (e.candidate) socket.emit('ice-candidate', e.candidate, userId, myPeerId); 
+            };
             pc.ontrack = (e) => {
                 const video = document.createElement('video');
                 addVideoStream(video, e.streams[0], userId, userName);
@@ -537,7 +560,6 @@ const frontendCode = `
                     myVideoStream.removeTrack(myVideoStream.getAudioTracks()[0]);
                     myVideoStream.addTrack(newTrack);
                     hasRealAudio = true;
-                    // Send to peers
                     for (let peerId in peers) {
                         const sender = peers[peerId].pc.getSenders().find(s => s.track.kind === 'audio');
                         if (sender) sender.replaceTrack(newTrack);
@@ -560,10 +582,8 @@ const frontendCode = `
                     myVideoStream.removeTrack(myVideoStream.getVideoTracks()[0]);
                     myVideoStream.addTrack(newTrack);
                     hasRealVideo = true;
-                    // Update local video element
                     const myVidElement = document.querySelector('#wrapper-' + myPeerId + ' video');
                     if (myVidElement) myVidElement.srcObject = myVideoStream;
-                    // Send to peers
                     for (let peerId in peers) {
                         const sender = peers[peerId].pc.getSenders().find(s => s.track.kind === 'video');
                         if (sender) sender.replaceTrack(newTrack);
@@ -613,7 +633,18 @@ const frontendCode = `
             }
         });
 
-        document.getElementById('chat-toggle-btn').addEventListener('click', () => document.getElementById('chat-section').classList.toggle('hidden'));
+        // Chat & Badge Logic
+        document.getElementById('chat-toggle-btn').addEventListener('click', () => {
+            const chatSec = document.getElementById('chat-section');
+            chatSec.classList.toggle('hidden');
+            
+            // If opening chat, hide and reset the red badge
+            if (!chatSec.classList.contains('hidden')) {
+                unreadChatCount = 0;
+                document.getElementById('chat-badge').style.display = 'none';
+            }
+        });
+        
         document.getElementById('close-chat').addEventListener('click', () => document.getElementById('chat-section').classList.add('hidden'));
         document.getElementById('notes-toggle-btn').addEventListener('click', () => document.getElementById('notes-section').classList.toggle('hidden'));
         document.getElementById('close-notes').addEventListener('click', () => document.getElementById('notes-section').classList.add('hidden'));
@@ -638,7 +669,7 @@ const frontendCode = `
                 socket.emit('send-message', text, myName, globalRoomId);
                 const li = document.createElement('li');
                 li.className = 'my-message';
-                li.innerHTML = '<b style="color:var(--neon-blue)">You</b><br>' + text;
+                li.innerHTML = '<b style="color:var(--neon-blue)">You</b>' + text;
                 messagesList.appendChild(li);
                 document.getElementById('chat-window').scrollTop = document.getElementById('chat-window').scrollHeight;
                 chatInput.value = '';
@@ -647,9 +678,20 @@ const frontendCode = `
 
         socket.on('create-message', (message, senderName) => {
             const li = document.createElement('li');
-            li.innerHTML = '<b style="color:#ccc">' + senderName + '</b><br>' + message;
+            li.innerHTML = '<b style="color:#ccc">' + senderName + '</b>' + message;
             messagesList.appendChild(li);
             document.getElementById('chat-window').scrollTop = document.getElementById('chat-window').scrollHeight;
+            
+            // NEW PRO FEATURE: Red badge update if chat is hidden
+            if (document.getElementById('chat-section').classList.contains('hidden')) {
+                unreadChatCount++;
+                const badge = document.getElementById('chat-badge');
+                badge.innerText = unreadChatCount;
+                badge.style.display = 'block';
+                
+                // Optional popup to let them know a message arrived
+                showNotification(senderName + " sent a message!");
+            }
         });
     </script>
 </body>
@@ -665,7 +707,6 @@ app.get('/', (req, res) => {
 
 io.on('connection', (socket) => {
 
-    // INVALID ROOM CHECKER
     socket.on('check-room-exists', (roomId) => {
         socket.emit('room-exists-response', activeRooms.has(roomId));
     });
@@ -689,38 +730,47 @@ io.on('connection', (socket) => {
         }
     });
 
+    // NEW SIGNALING FIX: Peer explicitly joins their own ID room so WebRTC offers find them
     socket.on('join-room-final', (roomId, userId, userName) => {
         socket.join(roomId);
+        socket.join(userId); // <--- THIS FIXED THE CONNECTION BUG!
         socket.to(roomId).emit('user-connected', userId, userName);
         
-        socket.on('send-message', (message, senderName, room_id) => {
-            socket.to(room_id).emit('create-message', message, senderName);
-        });
+        // Store on socket for clean disconnects
+        socket.roomId = roomId;
+        socket.userId = userId;
+    });
 
-        socket.on('offer', (offer, toId) => {
-            socket.to(toId).emit('offer', offer, socket.id);
-        });
-        socket.on('answer', (answer, toId) => {
-            socket.to(toId).emit('answer', answer, socket.id);
-        });
-        socket.on('ice-candidate', (candidate, toId) => {
-            socket.to(toId).emit('ice-candidate', candidate, socket.id);
-        });
+    // Decoupled Signaling listeners
+    socket.on('send-message', (message, senderName, room_id) => {
+        socket.to(room_id).emit('create-message', message, senderName);
+    });
 
-        socket.on('disconnect', () => {
-            socket.to(roomId).emit('user-disconnected', userId);
+    socket.on('offer', (offer, toId, fromId) => {
+        socket.to(toId).emit('offer', offer, fromId);
+    });
+    socket.on('answer', (answer, toId, fromId) => {
+        socket.to(toId).emit('answer', answer, fromId);
+    });
+    socket.on('ice-candidate', (candidate, toId, fromId) => {
+        socket.to(toId).emit('ice-candidate', candidate, fromId);
+    });
+
+    socket.on('disconnect', () => {
+        if (socket.roomId && socket.userId) {
+            socket.to(socket.roomId).emit('user-disconnected', socket.userId);
             
-            if (roomAdmins[roomId] === socket.id) {
-                delete roomAdmins[roomId];
-                const clients = io.sockets.adapter.rooms.get(roomId);
+            if (roomAdmins[socket.roomId] === socket.id) {
+                delete roomAdmins[socket.roomId];
+                const clients = io.sockets.adapter.rooms.get(socket.roomId);
                 if (!clients || clients.size === 0) {
-                    activeRooms.delete(roomId);
+                    activeRooms.delete(socket.roomId);
                 } else {
                     const nextAdmin = Array.from(clients)[0];
-                    roomAdmins[roomId] = nextAdmin;
+                    roomAdmins[socket.roomId] = nextAdmin;
                 }
             }
-        });
+        }
     });
 });
 
